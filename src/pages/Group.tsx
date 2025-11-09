@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { MessageCircle, Users, Plus, ArrowRight, Search, UserPlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { MessageCircle, Users, Plus, ArrowRight, Search, UserPlus, Sparkles, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import { generateGroupTopicSuggestions } from "@/ai";
+import { Badge } from "@/components/ui/badge";
 
 const groups = [
   {
@@ -43,9 +46,13 @@ const groups = [
 
 const Group = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<typeof groups[0] | null>(null);
+  const [topicSuggestions, setTopicSuggestions] = useState<string[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   const filteredGroups = groups.filter(group =>
     group.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -57,6 +64,28 @@ const Group = () => {
       console.log("创建群聊:", newGroupName);
       setNewGroupName("");
       setIsDialogOpen(false);
+      toast({
+        title: "群聊已创建",
+        description: `"${newGroupName}" 创建成功！`,
+      });
+    }
+  };
+
+  const handleGetTopicSuggestions = async (group: typeof groups[0]) => {
+    setSelectedGroup(group);
+    setLoadingSuggestions(true);
+    try {
+      const suggestions = await generateGroupTopicSuggestions(group.name);
+      setTopicSuggestions(suggestions);
+    } catch (error) {
+      console.error("Failed to generate topic suggestions:", error);
+      toast({
+        title: "生成失败",
+        description: error instanceof Error ? error.message : "无法生成话题建议",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingSuggestions(false);
     }
   };
 
@@ -130,7 +159,41 @@ const Group = () => {
 
       {/* Groups List */}
       <main className="px-4 py-6">
-        <div className="max-w-lg mx-auto space-y-3 animate-fade-in">
+        <div className="max-w-lg mx-auto space-y-4 animate-fade-in">
+          {/* AI Topic Suggestions Section */}
+          <Card className="p-4 gradient-soft border-primary/20">
+            <div className="flex items-center gap-2 mb-3">
+              <Lightbulb className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">AI 话题建议</h3>
+              <Badge variant="secondary" className="text-xs">
+                <Sparkles className="w-3 h-3 mr-1" />
+                AI
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              让 AI 为你的群聊推荐有趣的话题
+            </p>
+            {selectedGroup && topicSuggestions.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-primary mb-2">
+                  为 "{selectedGroup.name}" 推荐的话题：
+                </p>
+                {topicSuggestions.map((topic, index) => (
+                  <div
+                    key={index}
+                    className="p-3 rounded-lg bg-background/50 border border-border hover:border-primary/50 transition-colors"
+                  >
+                    <p className="text-sm">{topic}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                点击下方群聊卡片右侧的 ✨ 图标获取话题建议
+              </p>
+            )}
+          </Card>
+
           {filteredGroups.length === 0 ? (
             <Card className="p-8 text-center">
               <p className="text-muted-foreground">没有找到匹配的群聊</p>
@@ -139,12 +202,14 @@ const Group = () => {
             filteredGroups.map((group, index) => (
             <Card
               key={group.id}
-              onClick={() => navigate(`/group/${group.id}`)}
-              className="p-4 hover:shadow-elevated transition-all duration-300 cursor-pointer animate-slide-up border-border/50"
+              className="p-4 hover:shadow-elevated transition-all duration-300 animate-slide-up border-border/50"
               style={{ animationDelay: `${index * 100}ms` }}
             >
               <div className="flex items-center gap-4">
-                <div className="relative">
+                <div 
+                  className="relative cursor-pointer"
+                  onClick={() => navigate(`/group/${group.id}`)}
+                >
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
                     <Users className="w-7 h-7 text-primary" />
                   </div>
@@ -157,7 +222,10 @@ const Group = () => {
                   )}
                 </div>
                 
-                <div className="flex-1 min-w-0">
+                <div 
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => navigate(`/group/${group.id}`)}
+                >
                   <div className="flex items-center justify-between mb-1">
                     <h3 className="font-semibold truncate">{group.name}</h3>
                     <div className="flex items-center gap-2">
@@ -179,6 +247,19 @@ const Group = () => {
                     {group.lastMessage}
                   </p>
                 </div>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleGetTopicSuggestions(group);
+                  }}
+                  disabled={loadingSuggestions}
+                  className="rounded-xl flex-shrink-0"
+                >
+                  <Sparkles className={`w-5 h-5 ${loadingSuggestions ? 'animate-spin' : ''}`} />
+                </Button>
               </div>
             </Card>
             ))

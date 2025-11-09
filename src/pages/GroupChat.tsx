@@ -32,6 +32,8 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useToast } from "@/hooks/use-toast";
+import { generateGroupChatResponse } from "@/ai";
 
 interface GroupMessage {
   id: number;
@@ -107,7 +109,9 @@ const GroupChat = () => {
   const [inputValue, setInputValue] = useState("");
   const [currentRole, setCurrentRole] = useState<string>("guide");
   const [showRoleChange, setShowRoleChange] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   const group = groups[id as keyof typeof groups];
 
@@ -115,7 +119,7 @@ const GroupChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
 
     const newMessage: GroupMessage = {
@@ -127,29 +131,47 @@ const GroupChat = () => {
     };
 
     setMessages([...messages, newMessage]);
+    const messageToSend = inputValue;
     setInputValue("");
 
-    // Simulate AI response based on @mention or context
-    if (inputValue.includes("@Soul")) {
-      setTimeout(() => {
-        const role = aiRoles.find((r) => r.id === currentRole);
-        const responses = {
-          moderator: "我理解大家的不同观点。让我们先冷静下来，听听各方的想法如何？",
-          guide: "这个话题很有意思！不如我们深入讨论一下这个问题的几个方面？",
-          entertainer: "哈哈，让我来活跃一下气氛！给大家讲个笑话：...",
-        };
+    // Generate AI response if @Soul is mentioned
+    if (messageToSend.includes("@Soul")) {
+      setIsLoading(true);
+      try {
+        // Build group history for context
+        const groupHistory = messages.map(m => ({
+          sender: m.senderName,
+          content: m.content,
+        }));
+
+        // Generate AI response using the new function
+        const aiContent = await generateGroupChatResponse(
+          messageToSend,
+          groupHistory,
+          currentRole as "moderator" | "guide" | "entertainer"
+        );
 
         const aiResponse: GroupMessage = {
           id: messages.length + 2,
-          content: responses[currentRole as keyof typeof responses],
+          content: aiContent,
           sender: "ai",
           senderName: "Soul",
           timestamp: new Date(),
           aiRole: currentRole as any,
           aiIntervention: true,
         };
+        
         setMessages((prev) => [...prev, aiResponse]);
-      }, 1000);
+      } catch (error) {
+        console.error("Failed to generate AI response:", error);
+        toast({
+          title: "AI 回复失败",
+          description: error instanceof Error ? error.message : "请检查 API 配置",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -440,17 +462,22 @@ const GroupChat = () => {
             <Input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleSend()}
+              onKeyPress={(e) => e.key === "Enter" && !isLoading && handleSend()}
               placeholder="输入消息..."
+              disabled={isLoading}
               className="flex-1 rounded-xl border-border bg-background/50"
             />
             <Button
               onClick={handleSend}
               size="icon"
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || isLoading}
               className="rounded-xl gradient-primary shadow-soft hover:shadow-elevated transition-all duration-300 hover:scale-105 disabled:opacity-50"
             >
-              <Send className="w-5 h-5" />
+              {isLoading ? (
+                <Sparkles className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
             </Button>
           </div>
         </div>
