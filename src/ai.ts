@@ -210,6 +210,12 @@ export async function callLLM(
     model: admin.forcedModel || config.model,
   } : config;
 
+  console.log("Using AI API config:", {
+    apiEndpoint: effectiveConfig.apiEndpoint,
+    model: effectiveConfig.model,
+  });
+  
+
   try {
     // Create OpenAI client
     const client = createOpenAIClient(effectiveConfig);

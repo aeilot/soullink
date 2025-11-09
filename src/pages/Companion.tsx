@@ -84,7 +84,7 @@ const Companion = () => {
       try {
         const conversation = await db.getCurrentConversation();
         const dbMessages = await db.getConversationMessages(conversation.id);
-        
+
         if (dbMessages.length === 0) {
           // Create initial greeting message
           const greeting = await db.createMessage({
@@ -119,14 +119,14 @@ const Companion = () => {
         });
       }
     };
-    
+
     loadMessages();
   }, [toast]);
 
   // Start background tasks for proactive messaging
   useEffect(() => {
     backgroundTasks.start();
-    
+
     // Listen for proactive messages
     const handleProactiveMessage = ((event: CustomEvent) => {
       const { message } = event.detail;
@@ -144,7 +144,7 @@ const Companion = () => {
           emotionDetected: m.emotionDetected as "positive" | "neutral" | "negative" | undefined,
           isProactive: m.isProactive,
         })));
-        
+
         toast({
           title: "收到主动消息",
           description: message.substring(0, 50) + "...",
@@ -152,9 +152,9 @@ const Companion = () => {
       };
       reloadMessages();
     }) as EventListener;
-    
+
     window.addEventListener("proactive-message", handleProactiveMessage);
-    
+
     return () => {
       window.removeEventListener("proactive-message", handleProactiveMessage);
       backgroundTasks.stop();
@@ -285,7 +285,7 @@ const Companion = () => {
       // Get current personality or use saved/default
       const savedPersonality = localStorage.getItem("personalityConfig");
       const userPersonality = savedPersonality ? JSON.parse(savedPersonality) : getDefaultPersonality();
-      const currentPersonality = conversation.currentPersonality 
+      const currentPersonality = conversation.currentPersonality
         ? { ...userPersonality, systemPrompt: conversation.currentPersonality }
         : userPersonality;
 
@@ -430,14 +430,19 @@ const Companion = () => {
   };
 
   const handleVoiceInput = () => {
-    setIsRecording(!isRecording);
+    // setIsRecording(!isRecording);
+    toast({
+      title: "Coming Soon",
+      description: "语音输入功能即将上线，敬请期待！",
+    });
+
     // 实际项目中这里会调用语音识别 API
-    if (!isRecording) {
-      setTimeout(() => {
-        setIsRecording(false);
-        setInputValue("这是通过语音输入的内容");
-      }, 2000);
-    }
+    // if (!isRecording) {
+    //   setTimeout(() => {
+    //     // setIsRecording(false);
+    //     // setInputValue("这是通过语音输入的内容");
+    //   }, 200);
+    // }
   };
 
   const handleQuickReply = (reply: string) => {
@@ -468,7 +473,7 @@ const Companion = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <Sheet>
               <SheetTrigger asChild>
@@ -486,7 +491,7 @@ const Companion = () => {
                     <div className="h-32 flex items-end gap-2">
                       {emotionData.map((data, i) => (
                         <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                          <div 
+                          <div
                             className="w-full rounded-t-lg gradient-primary transition-all"
                             style={{ height: `${data.score}%` }}
                           ></div>
@@ -572,8 +577,8 @@ const Companion = () => {
                     )}
                   >
                     {message.hasMemory && message.sender === "ai" && (
-                      <Badge 
-                        variant="secondary" 
+                      <Badge
+                        variant="secondary"
                         className="absolute -top-2 -left-2 text-xs bg-primary/10 text-primary border-primary/20"
                       >
                         💭 {message.memoryTag}
