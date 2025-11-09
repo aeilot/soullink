@@ -54,7 +54,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     await clerkSignOut();
     setUser(null);
+    
+    // Clear all user-specific data from localStorage
     localStorage.removeItem("currentUserId");
+    localStorage.removeItem("currentConversationId");
+    localStorage.removeItem("personalityConfig");
+    localStorage.removeItem("userApiConfig");
+    
+    // Clear all data arrays (conversations, messages, memories, diaries, etc.)
+    localStorage.removeItem("users");
+    localStorage.removeItem("conversations");
+    localStorage.removeItem("messages");
+    localStorage.removeItem("memories");
+    localStorage.removeItem("diaryEntries");
+    localStorage.removeItem("userSettings");
+    
+    // Keep admin config and other system-level settings
+    // localStorage.removeItem("adminConfig"); // Keep this
+    
+    // Note: Group data is kept as it may be shared between users
+    // If you want to clear it as well, uncomment the following:
+    // localStorage.removeItem("groups");
+    // localStorage.removeItem("groupMembers");
+    // localStorage.removeItem("groupMessages");
   };
 
   return (
