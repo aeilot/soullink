@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, Sparkles, Mic, Settings, Smile, TrendingUp, Heart } from "lucide-react";
@@ -6,15 +6,27 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { 
+  generateAIResponse, 
+  generateSessionSummary, 
+  decidePersonalityUpdate, 
+  getDefaultPersonality,
+  type Message as AIMessage 
+} from "@/ai";
+import { db } from "@/lib/db";
+import { useToast } from "@/hooks/use-toast";
+import { backgroundTasks } from "@/lib/backgroundTasks";
 
 interface Message {
-  id: number;
+  id: string;
   content: string;
   sender: "user" | "ai";
   timestamp: Date;
   hasMemory?: boolean;
   memoryTag?: string;
   emotionDetected?: "positive" | "neutral" | "negative";
+  isProactive?: boolean;
+  messages?: string[]; // For split messages
 }
 
 const quickReplies = [
@@ -31,18 +43,13 @@ const aiMoods = [
 ];
 
 const Companion = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      content: "你好呀！我是你的智能伴侣，很高兴认识你。今天想聊些什么呢？",
-      sender: "ai",
-      timestamp: new Date(),
-    },
-  ]);
+  const { toast } = useToast();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [currentMood, setCurrentMood] = useState(0);
   const [showQuickReplies, setShowQuickReplies] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [emotionData, setEmotionData] = useState([
     { time: "8:00", score: 70 },
     { time: "12:00", score: 65 },
@@ -51,6 +58,90 @@ const Companion = () => {
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Load messages from database on mount
+  useEffect(() => {
+    const loadMessages = async () => {
+      try {
+        const conversation = await db.getCurrentConversation();
+        const dbMessages = await db.getConversationMessages(conversation.id);
+        
+        if (dbMessages.length === 0) {
+          // Create initial greeting message
+          const greeting = await db.createMessage({
+            content: "你好呀！我是你的智能伴侣Soul，很高兴认识你。今天想聊些什么呢？",
+            sender: "ai",
+            conversationId: conversation.id,
+          });
+          setMessages([{
+            id: greeting.id,
+            content: greeting.content,
+            sender: greeting.sender as "user" | "ai",
+            timestamp: new Date(greeting.createdAt),
+          }]);
+        } else {
+          setMessages(dbMessages.map(m => ({
+            id: m.id,
+            content: m.content,
+            sender: m.sender as "user" | "ai",
+            timestamp: new Date(m.createdAt),
+            hasMemory: m.hasMemory,
+            memoryTag: m.memoryTag || undefined,
+            emotionDetected: m.emotionDetected as "positive" | "neutral" | "negative" | undefined,
+            isProactive: m.isProactive,
+          })));
+        }
+      } catch (error) {
+        console.error("Failed to load messages:", error);
+        toast({
+          title: "加载失败",
+          description: "无法加载历史消息",
+          variant: "destructive",
+        });
+      }
+    };
+    
+    loadMessages();
+  }, [toast]);
+
+  // Start background tasks for proactive messaging
+  useEffect(() => {
+    backgroundTasks.start();
+    
+    // Listen for proactive messages
+    const handleProactiveMessage = ((event: CustomEvent) => {
+      const { message } = event.detail;
+      // Reload messages to show the new proactive message
+      const reloadMessages = async () => {
+        const conversation = await db.getCurrentConversation();
+        const dbMessages = await db.getConversationMessages(conversation.id);
+        setMessages(dbMessages.map(m => ({
+          id: m.id,
+          content: m.content,
+          sender: m.sender as "user" | "ai",
+          timestamp: new Date(m.createdAt),
+          hasMemory: m.hasMemory,
+          memoryTag: m.memoryTag || undefined,
+          emotionDetected: m.emotionDetected as "positive" | "neutral" | "negative" | undefined,
+          isProactive: m.isProactive,
+        })));
+        
+        toast({
+          title: "收到主动消息",
+          description: message.substring(0, 50) + "...",
+        });
+      };
+      reloadMessages();
+    }) as EventListener;
+    
+    window.addEventListener("proactive-message", handleProactiveMessage);
+    
+    return () => {
+      window.removeEventListener("proactive-message", handleProactiveMessage);
+      backgroundTasks.stop();
+    };
+  }, [toast]);
+
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -62,49 +153,187 @@ const Companion = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleSend = (content?: string) => {
+  const handleSend = async (content?: string) => {
     const messageContent = content || inputValue;
     if (!messageContent.trim()) return;
 
-    const newMessage: Message = {
-      id: messages.length + 1,
-      content: messageContent,
-      sender: "user",
-      timestamp: new Date(),
-    };
-
-    setMessages([...messages, newMessage]);
     setInputValue("");
     setShowQuickReplies(false);
+    setIsLoading(true);
 
-    // Simulate AI response with emotion detection
-    setTimeout(() => {
-      const responses = [
-        {
-          content: "我理解你的感受。让我们一起慢慢聊，我会一直陪着你。💙",
-          hasMemory: false,
-        },
-        {
-          content: "记得你上次提到过这个话题。看来这对你很重要呢。",
-          hasMemory: true,
-          memoryTag: "重要记忆",
-        },
-        {
-          content: "听起来你今天的心情不错！真为你高兴 ✨",
-          emotionDetected: "positive" as const,
-        },
-      ];
-      
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-      
-      const aiResponse: Message = {
-        id: messages.length + 2,
-        ...randomResponse,
-        sender: "ai",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1000);
+    try {
+      const conversation = await db.getCurrentConversation();
+      const user = await db.getCurrentUser();
+
+      // Create user message
+      const userMessage = await db.createMessage({
+        content: messageContent,
+        sender: "user",
+        conversationId: conversation.id,
+        userId: user.id,
+      });
+
+      // Add to UI
+      setMessages(prev => [...prev, {
+        id: userMessage.id,
+        content: userMessage.content,
+        sender: "user",
+        timestamp: new Date(userMessage.createdAt),
+      }]);
+
+      // Build conversation history for AI
+      const conversationHistory: AIMessage[] = messages
+        .slice(-10) // Use last 10 messages for context
+        .map(m => ({
+          role: m.sender === "user" ? "user" : "assistant",
+          content: m.content,
+        }));
+
+      // Get current personality or use saved/default
+      const savedPersonality = localStorage.getItem("personalityConfig");
+      const userPersonality = savedPersonality ? JSON.parse(savedPersonality) : getDefaultPersonality();
+      const currentPersonality = conversation.currentPersonality 
+        ? { ...userPersonality, systemPrompt: conversation.currentPersonality }
+        : userPersonality;
+
+      // Generate AI response
+      const aiResponse = await generateAIResponse(
+        messageContent,
+        conversationHistory,
+        currentPersonality
+      );
+
+      // Handle split messages
+      if (aiResponse.messages && aiResponse.messages.length > 1) {
+        // Save and display each message separately
+        for (const msg of aiResponse.messages) {
+          const splitMessage = await db.createMessage({
+            content: msg,
+            sender: "ai",
+            conversationId: conversation.id,
+            hasMemory: aiResponse.hasMemory,
+            memoryTag: aiResponse.memoryTag,
+            emotionDetected: aiResponse.emotionDetected,
+          });
+
+          setMessages(prev => [...prev, {
+            id: splitMessage.id,
+            content: splitMessage.content,
+            sender: "ai",
+            timestamp: new Date(splitMessage.createdAt),
+            hasMemory: splitMessage.hasMemory,
+            memoryTag: splitMessage.memoryTag || undefined,
+            emotionDetected: splitMessage.emotionDetected as "positive" | "neutral" | "negative" | undefined,
+          }]);
+
+          // Small delay between messages for better UX
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } else {
+        // Single message
+        const aiMessage = await db.createMessage({
+          content: aiResponse.content,
+          sender: "ai",
+          conversationId: conversation.id,
+          hasMemory: aiResponse.hasMemory,
+          memoryTag: aiResponse.memoryTag,
+          emotionDetected: aiResponse.emotionDetected,
+        });
+
+        // Add to UI
+        setMessages(prev => [...prev, {
+          id: aiMessage.id,
+          content: aiMessage.content,
+          sender: "ai",
+          timestamp: new Date(aiMessage.createdAt),
+          hasMemory: aiMessage.hasMemory,
+          memoryTag: aiMessage.memoryTag || undefined,
+          emotionDetected: aiMessage.emotionDetected as "positive" | "neutral" | "negative" | undefined,
+        }]);
+      }
+
+      // Save memory if tagged
+      if (aiResponse.hasMemory && aiResponse.memoryTag) {
+        await db.createMemory({
+          content: messageContent,
+          category: aiResponse.memoryTag,
+          userId: user.id,
+        });
+      }
+
+      // Get updated conversation
+      const updatedConversation = await db.getConversation(conversation.id);
+      const messageCount = updatedConversation?.messageCount || 0;
+
+      // Auto-generate summary every 10 messages
+      if (messageCount % 10 === 0 && messageCount > 0) {
+        try {
+          const allMessages = await db.getConversationMessages(conversation.id);
+          const historyForSummary: AIMessage[] = allMessages.map(m => ({
+            role: m.sender === "user" ? "user" : "assistant",
+            content: m.content,
+          })) as AIMessage[];
+
+          const summary = await generateSessionSummary(
+            historyForSummary,
+            conversation.summary
+          );
+
+          await db.updateConversation(conversation.id, {
+            summary,
+            title: summary.substring(0, 50),
+          });
+
+          toast({
+            title: "会话已更新",
+            description: `自动生成摘要: ${summary.substring(0, 50)}...`,
+          });
+        } catch (summaryError) {
+          console.error("Failed to generate summary:", summaryError);
+        }
+      }
+
+      // Check for personality update every 20 messages
+      if (messageCount % 20 === 0 && messageCount >= 20) {
+        try {
+          const allMessages = await db.getConversationMessages(conversation.id);
+          const historyForAnalysis: AIMessage[] = allMessages.map(m => ({
+            role: m.sender === "user" ? "user" : "assistant",
+            content: m.content,
+          })) as AIMessage[];
+
+          const decision = await decidePersonalityUpdate(
+            historyForAnalysis,
+            currentPersonality,
+            messageCount,
+            conversation.summary || "新对话"
+          );
+
+          if (decision.shouldUpdate && decision.suggestedPersonality) {
+            await db.updateConversation(conversation.id, {
+              currentPersonality: decision.suggestedPersonality,
+            });
+
+            toast({
+              title: "个性已自适应",
+              description: `${decision.reason} (置信度: ${(decision.confidence * 100).toFixed(0)}%)`,
+            });
+          }
+        } catch (personalityError) {
+          console.error("Failed to check personality update:", personalityError);
+        }
+      }
+
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      toast({
+        title: "发送失败",
+        description: error instanceof Error ? error.message : "无法发送消息",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleVoiceInput = () => {
@@ -333,15 +562,15 @@ const Companion = () => {
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && handleSend()}
+            onKeyPress={(e) => e.key === "Enter" && !isLoading && handleSend()}
             placeholder={isRecording ? "正在录音..." : "说说你的想法..."}
-            disabled={isRecording}
+            disabled={isRecording || isLoading}
             className="flex-1 rounded-xl border-border bg-background/50"
           />
           <Button
             onClick={() => handleSend()}
             size="icon"
-            disabled={!inputValue.trim() || isRecording}
+            disabled={!inputValue.trim() || isRecording || isLoading}
             className="rounded-xl gradient-primary shadow-soft hover:shadow-elevated transition-all duration-300 hover:scale-105 disabled:opacity-50"
           >
             <Send className="w-5 h-5" />
