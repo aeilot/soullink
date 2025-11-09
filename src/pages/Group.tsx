@@ -56,7 +56,7 @@ const Group = () => {
   const [newGroupDesc, setNewGroupDesc] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [selectedGroup, setSelectedGroup] = useState<GroupType | typeof staticGroups[0] | null>(null);
   const [topicSuggestions, setTopicSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [userGroups, setUserGroups] = useState<GroupType[]>([]);
