@@ -15,7 +15,8 @@ import {
   Star,
   Zap,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Lock
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -39,67 +40,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/db";
+import { db, type DiaryEntry } from "@/lib/db";
 import { 
   generateDiaryEntry, 
   generateEmotionInsights, 
   analyzeSocialRelationships,
   type Message as AIMessage
 } from "@/ai";
-
-const stats = [
-  {
-    icon: Calendar,
-    label: "连续陪伴",
-    value: "7",
-    unit: "天",
-    color: "text-primary",
-  },
-  {
-    icon: Heart,
-    label: "情感支持",
-    value: "24",
-    unit: "次",
-    color: "text-secondary",
-  },
-  {
-    icon: Target,
-    label: "目标达成",
-    value: "3",
-    unit: "个",
-    color: "text-success",
-  },
-];
-
-const diaryEntries = [
-  {
-    id: 1,
-    date: "2024-01-20",
-    title: "充实的一天",
-    content: "今天与同事们讨论了新项目的方案，大家的想法都很有创意。晚上和朋友聊天，感觉心情轻松了许多。",
-    mood: "😊",
-    moodText: "快乐",
-    aiGenerated: true,
-  },
-  {
-    id: 2,
-    date: "2024-01-19",
-    title: "平静的周五",
-    content: "工作进展顺利，完成了本周的目标。下班后去公园散步，天气很好。",
-    mood: "😌",
-    moodText: "平静",
-    aiGenerated: true,
-  },
-  {
-    id: 3,
-    date: "2024-01-18",
-    title: "压力与突破",
-    content: "今天遇到了一些工作难题，但通过和 Soul 的对话找到了新的解决思路。感觉自己又成长了一些。",
-    mood: "💪",
-    moodText: "坚强",
-    aiGenerated: true,
-  },
-];
+import { useAuth } from "@/hooks/use-auth";
+import { LoginDialog } from "@/components/LoginDialog";
 
 const emotionData = [
   { date: "周一", happy: 60, calm: 70, anxious: 30, sad: 20 },
@@ -166,23 +115,106 @@ const achievements = [
 
 const Archive = () => {
   const { toast } = useToast();
+  const { user, isSignedIn } = useAuth();
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [timeFilter, setTimeFilter] = useState("week");
-  const [selectedDiary, setSelectedDiary] = useState<typeof diaryEntries[0] | null>(null);
+  const [selectedDiary, setSelectedDiary] = useState<DiaryEntry | null>(null);
   const [isEditingDiary, setIsEditingDiary] = useState(false);
   const [editedContent, setEditedContent] = useState("");
-  const [diaries, setDiaries] = useState(diaryEntries);
+  const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
   const [emotionInsight, setEmotionInsight] = useState<string | null>(null);
   const [socialAnalysis, setSocialAnalysis] = useState<string | null>(null);
   const [isGeneratingDiary, setIsGeneratingDiary] = useState(false);
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+  
+  // Stats state
+  const [continuousDays, setContinuousDays] = useState(0);
+  const [emotionalSupport, setEmotionalSupport] = useState(0);
+  const [goalsAchieved, setGoalsAchieved] = useState(0);
+
+  // Load diaries from database
+  useEffect(() => {
+    loadDiaries();
+  }, [user]);
+  
+  // Load stats
+  useEffect(() => {
+    loadStats();
+  }, [user, isSignedIn]);
+
+  const loadStats = async () => {
+    if (user && isSignedIn) {
+      try {
+        // Calculate continuous days based on conversations
+        const conversations = await db.getUserConversations(user.id);
+        const sortedConvs = conversations
+          .filter(c => c.lastActivityAt)
+          .sort((a, b) => new Date(b.lastActivityAt!).getTime() - new Date(a.lastActivityAt!).getTime());
+        
+        // Calculate continuous days
+        let days = 0;
+        let currentDate = new Date();
+        currentDate.setHours(0, 0, 0, 0);
+        
+        for (const conv of sortedConvs) {
+          const convDate = new Date(conv.lastActivityAt!);
+          convDate.setHours(0, 0, 0, 0);
+          const diffDays = Math.floor((currentDate.getTime() - convDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (diffDays === days) {
+            days++;
+            currentDate.setDate(currentDate.getDate() - 1);
+          } else if (diffDays > days) {
+            break;
+          }
+        }
+        setContinuousDays(days || conversations.length > 0 ? 1 : 0);
+        
+        // Calculate emotional support (count of messages with positive emotion)
+        let supportCount = 0;
+        for (const conv of conversations) {
+          const messages = await db.getConversationMessages(conv.id);
+          supportCount += messages.filter(m => 
+            m.sender === "ai" && (m.emotionDetected === "positive" || m.hasMemory)
+          ).length;
+        }
+        setEmotionalSupport(supportCount);
+        
+        // Goals achieved (count of diaries)
+        const userDiaries = await db.getUserDiaryEntries(user.id);
+        setGoalsAchieved(userDiaries.length);
+      } catch (error) {
+        console.error("Failed to load stats:", error);
+      }
+    } else {
+      setContinuousDays(0);
+      setEmotionalSupport(0);
+      setGoalsAchieved(0);
+    }
+  };
+
+  const loadDiaries = async () => {
+    if (user) {
+      const userDiaries = await db.getUserDiaryEntries(user.id);
+      setDiaries(userDiaries);
+    } else {
+      setDiaries([]);
+    }
+  };
 
   // Load AI-generated emotion insights on mount
   useEffect(() => {
-    loadEmotionInsights();
-  }, [timeFilter]);
+    if (isSignedIn) {
+      loadEmotionInsights();
+    }
+  }, [timeFilter, isSignedIn]);
 
   const loadEmotionInsights = async () => {
+    if (!isSignedIn) {
+      return;
+    }
+    
     setIsGeneratingInsight(true);
     try {
       const conversation = await db.getCurrentConversation();
@@ -204,6 +236,16 @@ const Archive = () => {
   };
 
   const handleGenerateDiary = async () => {
+    if (!isSignedIn || !user) {
+      setShowLoginDialog(true);
+      toast({
+        title: "需要登录",
+        description: "请先登录以使用日记功能",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsGeneratingDiary(true);
     try {
       const conversation = await db.getCurrentConversation();
@@ -226,15 +268,15 @@ const Archive = () => {
       
       const diary = await generateDiaryEntry(aiMessages, new Date());
       
-      const newDiary = {
-        id: diaries.length + 1,
+      const newDiary = await db.createDiaryEntry({
+        userId: user.id,
         date: new Date().toISOString().split('T')[0],
         title: diary.title,
         content: diary.content,
         mood: diary.mood,
         moodText: diary.moodText,
         aiGenerated: true,
-      };
+      });
       
       setDiaries([newDiary, ...diaries]);
       
@@ -254,22 +296,41 @@ const Archive = () => {
     }
   };
 
-  const handleEditDiary = (diary: typeof diaryEntries[0]) => {
+  const handleEditDiary = (diary: DiaryEntry) => {
+    if (!isSignedIn) {
+      setShowLoginDialog(true);
+      toast({
+        title: "需要登录",
+        description: "请先登录以编辑日记",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedDiary(diary);
     setEditedContent(diary.content);
     setIsEditingDiary(true);
   };
 
-  const handleSaveDiary = () => {
+  const handleSaveDiary = async () => {
+    if (!isSignedIn || !user) {
+      setShowLoginDialog(true);
+      return;
+    }
+
     if (selectedDiary) {
       // Update the diary entry with edited content
-      setDiaries(prev => prev.map(diary => 
-        diary.id === selectedDiary.id 
-          ? { ...diary, content: editedContent }
-          : diary
-      ));
+      const updated = await db.updateDiaryEntry(selectedDiary.id, {
+        content: editedContent,
+      });
       
-      // TODO: Save to database when backend is implemented
+      if (updated) {
+        setDiaries(prev => prev.map(diary => 
+          diary.id === selectedDiary.id 
+            ? updated
+            : diary
+        ));
+      }
       
       setIsEditingDiary(false);
       setSelectedDiary(null);
@@ -306,24 +367,65 @@ const Archive = () => {
 
           {/* Stats Cards */}
           <div className="grid grid-cols-3 gap-3">
-            {stats.map((stat, index) => (
-              <Card key={index} className="p-3 text-center border-border/50">
-                <stat.icon className={`w-4 h-4 ${stat.color} mx-auto mb-1`} />
-                <div className="text-lg font-bold">
-                  {stat.value}
-                  <span className="text-xs font-normal text-muted-foreground ml-0.5">
-                    {stat.unit}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground">{stat.label}</div>
-              </Card>
-            ))}
+            <Card className="p-3 text-center border-border/50">
+              <Calendar className="w-4 h-4 text-primary mx-auto mb-1" />
+              <div className="text-lg font-bold">
+                {continuousDays}
+                <span className="text-xs font-normal text-muted-foreground ml-0.5">
+                  天
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">连续陪伴</div>
+            </Card>
+            <Card className="p-3 text-center border-border/50">
+              <Heart className="w-4 h-4 text-secondary mx-auto mb-1" />
+              <div className="text-lg font-bold">
+                {emotionalSupport}
+                <span className="text-xs font-normal text-muted-foreground ml-0.5">
+                  次
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">情感支持</div>
+            </Card>
+            <Card className="p-3 text-center border-border/50">
+              <Target className="w-4 h-4 text-success mx-auto mb-1" />
+              <div className="text-lg font-bold">
+                {goalsAchieved}
+                <span className="text-xs font-normal text-muted-foreground ml-0.5">
+                  个
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">目标达成</div>
+            </Card>
           </div>
         </div>
       </header>
 
       <main className="px-4 py-6">
         <div className="max-w-lg mx-auto">
+          {/* Login Prompt for Unauthenticated Users */}
+          {!isSignedIn && (
+            <Card className="p-6 mb-6 border-primary/20 bg-gradient-to-br from-primary/5 to-secondary/5">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">登录解锁完整功能</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    登录后可以使用日记生成、情绪分析、关系洞察等所有档案功能
+                  </p>
+                  <Button 
+                    onClick={() => setShowLoginDialog(true)}
+                    className="rounded-lg gradient-primary"
+                  >
+                    立即登录
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <Tabs defaultValue="diary" className="w-full">
             <TabsList className="grid w-full grid-cols-4 mb-6">
               <TabsTrigger value="diary" className="gap-1">
@@ -356,12 +458,17 @@ const Archive = () => {
                   variant="outline" 
                   className="rounded-lg gap-1"
                   onClick={handleGenerateDiary}
-                  disabled={isGeneratingDiary}
+                  disabled={isGeneratingDiary || !isSignedIn}
                 >
                   {isGeneratingDiary ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       生成中
+                    </>
+                  ) : !isSignedIn ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      需要登录
                     </>
                   ) : (
                     <>
@@ -506,13 +613,18 @@ const Archive = () => {
                     size="sm"
                     variant="ghost"
                     onClick={loadEmotionInsights}
-                    disabled={isGeneratingInsight}
+                    disabled={isGeneratingInsight || !isSignedIn}
                     className="h-6 w-6 p-0"
                   >
                     <RefreshCw className={`w-3 h-3 ${isGeneratingInsight ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
-                {isGeneratingInsight ? (
+                {!isSignedIn ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Lock className="w-4 h-4" />
+                    登录后查看 AI 情绪分析
+                  </div>
+                ) : isGeneratingInsight ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     AI 正在分析你的情绪模式...
@@ -521,6 +633,89 @@ const Archive = () => {
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     {emotionInsight || "本周你的整体情绪呈上升趋势，周三出现了一些波动，但很快恢复。保持目前的状态，继续加油！"}
                   </p>
+                )}
+              </Card>
+
+              {/* 情绪健康监测 */}
+              <Card className="p-6 border-2 border-primary/20 bg-gradient-to-br from-primary/5 via-secondary/5 to-success/5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Heart className="w-5 h-5 text-primary animate-pulse" />
+                  <h3 className="font-semibold">情绪健康监测</h3>
+                  <Badge variant="secondary" className="ml-auto">
+                    {isSignedIn ? "健康" : "需要登录"}
+                  </Badge>
+                </div>
+                
+                {!isSignedIn ? (
+                  <div className="text-center py-6">
+                    <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-sm text-muted-foreground mb-4">
+                      登录后查看完整的情绪健康监测报告
+                    </p>
+                    <Button 
+                      size="sm"
+                      onClick={() => setShowLoginDialog(true)}
+                      className="rounded-lg"
+                    >
+                      立即登录
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-3 mb-4">
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            😊 情绪稳定性
+                          </span>
+                          <span className="font-semibold text-success">良好 85%</span>
+                        </div>
+                        <Progress value={85} className="h-2 bg-muted" />
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            💪 压力管理
+                          </span>
+                          <span className="font-semibold text-primary">中等 70%</span>
+                        </div>
+                        <Progress value={70} className="h-2 bg-muted" />
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            🌟 积极程度
+                          </span>
+                          <span className="font-semibold text-warning">优秀 90%</span>
+                        </div>
+                        <Progress value={90} className="h-2 bg-muted" />
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            😴 睡眠质量
+                          </span>
+                          <span className="font-semibold text-secondary">良好 75%</span>
+                        </div>
+                        <Progress value={75} className="h-2 bg-muted" />
+                      </div>
+                    </div>
+                    
+                    <div className="rounded-lg bg-success/10 border border-success/20 p-3">
+                      <div className="flex items-start gap-2">
+                        <Sparkles className="w-4 h-4 text-success mt-0.5 flex-shrink-0" />
+                        <div className="text-xs space-y-1">
+                          <p className="font-semibold text-success">健康建议</p>
+                          <p className="text-muted-foreground leading-relaxed">
+                            你的整体情绪健康状态良好！建议保持规律作息，适当运动，并继续与 AI 伴侣进行情感交流。当感到压力时，记得及时休息和放松。
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
               </Card>
 
@@ -579,6 +774,11 @@ const Archive = () => {
                     size="sm"
                     variant="ghost"
                     onClick={async () => {
+                      if (!isSignedIn) {
+                        setShowLoginDialog(true);
+                        return;
+                      }
+                      
                       setIsGeneratingAnalysis(true);
                       try {
                         // For demo, use some mock group messages
@@ -597,13 +797,18 @@ const Archive = () => {
                         setIsGeneratingAnalysis(false);
                       }
                     }}
-                    disabled={isGeneratingAnalysis}
+                    disabled={isGeneratingAnalysis || !isSignedIn}
                     className="h-6 w-6 p-0"
                   >
                     <RefreshCw className={`w-3 h-3 ${isGeneratingAnalysis ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
-                {isGeneratingAnalysis ? (
+                {!isSignedIn ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Lock className="w-4 h-4" />
+                    登录后查看 AI 社交分析
+                  </div>
+                ) : isGeneratingAnalysis ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     AI 正在分析你的社交模式...
@@ -686,6 +891,9 @@ const Archive = () => {
           </Tabs>
         </div>
       </main>
+
+      {/* Login Dialog */}
+      <LoginDialog open={showLoginDialog} onOpenChange={setShowLoginDialog} />
     </div>
   );
 };

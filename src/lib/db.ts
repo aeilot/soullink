@@ -85,6 +85,19 @@ export interface UserSettings {
   updatedAt: Date;
 }
 
+export interface DiaryEntry {
+  id: string;
+  userId: string;
+  date: string;
+  title: string;
+  content: string;
+  mood: string;
+  moodText: string;
+  aiGenerated: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 class DatabaseService {
   private getFromStorage<T>(key: string): T[] {
     const data = localStorage.getItem(key);
@@ -486,6 +499,65 @@ class DatabaseService {
     this.saveToStorage("userSettings", filtered);
   }
 
+  // DiaryEntry operations
+  async createDiaryEntry(data: {
+    userId: string;
+    date: string;
+    title: string;
+    content: string;
+    mood: string;
+    moodText: string;
+    aiGenerated: boolean;
+  }): Promise<DiaryEntry> {
+    const diaries = this.getFromStorage<DiaryEntry>("diaryEntries");
+    const diary: DiaryEntry = {
+      id: this.generateId(),
+      userId: data.userId,
+      date: data.date,
+      title: data.title,
+      content: data.content,
+      mood: data.mood,
+      moodText: data.moodText,
+      aiGenerated: data.aiGenerated,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    diaries.push(diary);
+    this.saveToStorage("diaryEntries", diaries);
+    return diary;
+  }
+
+  async getUserDiaryEntries(userId: string): Promise<DiaryEntry[]> {
+    const diaries = this.getFromStorage<DiaryEntry>("diaryEntries");
+    return diaries
+      .filter(d => d.userId === userId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }
+
+  async getDiaryEntry(id: string): Promise<DiaryEntry | null> {
+    const diaries = this.getFromStorage<DiaryEntry>("diaryEntries");
+    return diaries.find(d => d.id === id) || null;
+  }
+
+  async updateDiaryEntry(id: string, updates: Partial<DiaryEntry>): Promise<DiaryEntry | null> {
+    const diaries = this.getFromStorage<DiaryEntry>("diaryEntries");
+    const index = diaries.findIndex(d => d.id === id);
+    if (index === -1) return null;
+    
+    diaries[index] = {
+      ...diaries[index],
+      ...updates,
+      updatedAt: new Date(),
+    };
+    this.saveToStorage("diaryEntries", diaries);
+    return diaries[index];
+  }
+
+  async deleteDiaryEntry(id: string): Promise<void> {
+    const diaries = this.getFromStorage<DiaryEntry>("diaryEntries");
+    this.saveToStorage("diaryEntries", diaries.filter(d => d.id !== id));
+  }
+
   // Clear all data (for testing/reset)
   async clearAll(): Promise<void> {
     localStorage.removeItem("users");
@@ -496,6 +568,7 @@ class DatabaseService {
     localStorage.removeItem("groupMembers");
     localStorage.removeItem("groupMessages");
     localStorage.removeItem("userSettings");
+    localStorage.removeItem("diaryEntries");
     localStorage.removeItem("currentUserId");
     localStorage.removeItem("currentConversationId");
   }
