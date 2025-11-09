@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings, Bell, Shield, HelpCircle, LogOut, ChevronRight, User, Cpu, Eye, EyeOff, Brain, Sparkles } from "lucide-react";
+import { Settings, Bell, Shield, HelpCircle, LogOut, ChevronRight, User, Cpu, Eye, EyeOff, Brain, Sparkles, Lightbulb, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { getDefaultPersonality, type PersonalityConfig } from "@/ai";
+import { getDefaultPersonality, generatePersonalitySuggestions, type PersonalityConfig, type Message as AIMessage } from "@/ai";
+import { db } from "@/lib/db";
+import { Badge } from "@/components/ui/badge";
 
 interface ApiConfig {
   apiKey: string;
@@ -56,6 +58,8 @@ const Profile = () => {
   const [isPersonalityDialogOpen, setIsPersonalityDialogOpen] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAdminApiKey, setShowAdminApiKey] = useState(false);
+  const [personalitySuggestions, setPersonalitySuggestions] = useState<{ suggestions: string[]; explanation: string } | null>(null);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     apiKey: "",
@@ -138,6 +142,50 @@ const Profile = () => {
       ...prev,
       useLocalProgram: checked,
     }));
+  };
+
+  const handleGetPersonalitySuggestions = async () => {
+    setIsLoadingSuggestions(true);
+    try {
+      const conversation = await db.getCurrentConversation();
+      const messages = await db.getConversationMessages(conversation.id);
+      
+      if (messages.length < 5) {
+        toast({
+          title: "对话太少",
+          description: "请先与 AI 进行至少 5 次对话，以便生成个性化建议",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Convert messages to AI format
+      const aiMessages: AIMessage[] = messages.map(m => ({
+        role: m.sender === "user" ? "user" : "assistant",
+        content: m.content,
+      }));
+      
+      const suggestions = await generatePersonalitySuggestions(
+        aiMessages,
+        personalityConfig
+      );
+      
+      setPersonalitySuggestions(suggestions);
+      
+      toast({
+        title: "建议已生成",
+        description: "AI 已根据你的对话历史生成个性优化建议",
+      });
+    } catch (error) {
+      console.error("Failed to generate personality suggestions:", error);
+      toast({
+        title: "生成失败",
+        description: error instanceof Error ? error.message : "无法生成建议",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
   };
 
   return (
@@ -364,6 +412,58 @@ const Profile = () => {
                       </ul>
                     </div>
                   </div>
+                </div>
+
+                {/* AI Personality Suggestions */}
+                <div className="rounded-lg border border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-pink-500/5 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4 text-purple-500" />
+                      <p className="font-semibold text-sm">AI 优化建议</p>
+                      <Badge variant="secondary" className="text-xs">
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        AI
+                      </Badge>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleGetPersonalitySuggestions}
+                      disabled={isLoadingSuggestions}
+                      className="h-7"
+                    >
+                      {isLoadingSuggestions ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                          分析中
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3 mr-1" />
+                          获取建议
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {personalitySuggestions ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        {personalitySuggestions.explanation}
+                      </p>
+                      <ul className="space-y-1">
+                        {personalitySuggestions.suggestions.map((suggestion, index) => (
+                          <li key={index} className="text-xs text-foreground flex items-start gap-2">
+                            <span className="text-purple-500 font-bold">{index + 1}.</span>
+                            <span>{suggestion}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      点击"获取建议"让 AI 根据你的对话历史分析并提供个性优化建议
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex justify-between gap-3">

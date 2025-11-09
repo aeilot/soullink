@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Calendar, 
   TrendingUp, 
@@ -13,7 +13,9 @@ import {
   ChevronDown,
   Award,
   Star,
-  Zap
+  Zap,
+  Sparkles,
+  RefreshCw
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +38,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { db } from "@/lib/db";
+import { 
+  generateDiaryEntry, 
+  generateEmotionInsights, 
+  analyzeSocialRelationships,
+  type Message as AIMessage
+} from "@/ai";
 
 const stats = [
   {
@@ -155,10 +165,94 @@ const achievements = [
 ];
 
 const Archive = () => {
+  const { toast } = useToast();
   const [timeFilter, setTimeFilter] = useState("week");
   const [selectedDiary, setSelectedDiary] = useState<typeof diaryEntries[0] | null>(null);
   const [isEditingDiary, setIsEditingDiary] = useState(false);
   const [editedContent, setEditedContent] = useState("");
+  const [diaries, setDiaries] = useState(diaryEntries);
+  const [emotionInsight, setEmotionInsight] = useState<string | null>(null);
+  const [socialAnalysis, setSocialAnalysis] = useState<string | null>(null);
+  const [isGeneratingDiary, setIsGeneratingDiary] = useState(false);
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+
+  // Load AI-generated emotion insights on mount
+  useEffect(() => {
+    loadEmotionInsights();
+  }, [timeFilter]);
+
+  const loadEmotionInsights = async () => {
+    setIsGeneratingInsight(true);
+    try {
+      const conversation = await db.getCurrentConversation();
+      const messages = await db.getConversationMessages(conversation.id);
+      
+      // Convert messages to AI format
+      const aiMessages: AIMessage[] = messages.map(m => ({
+        role: m.sender === "user" ? "user" : "assistant",
+        content: m.content,
+      }));
+      
+      const insight = await generateEmotionInsights(aiMessages, timeFilter);
+      setEmotionInsight(insight);
+    } catch (error) {
+      console.error("Failed to generate emotion insights:", error);
+    } finally {
+      setIsGeneratingInsight(false);
+    }
+  };
+
+  const handleGenerateDiary = async () => {
+    setIsGeneratingDiary(true);
+    try {
+      const conversation = await db.getCurrentConversation();
+      const messages = await db.getConversationMessages(conversation.id);
+      
+      if (messages.length === 0) {
+        toast({
+          title: "暂无对话",
+          description: "请先与 AI 进行一些对话，然后再生成日记",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Convert messages to AI format
+      const aiMessages: AIMessage[] = messages.map(m => ({
+        role: m.sender === "user" ? "user" : "assistant",
+        content: m.content,
+      }));
+      
+      const diary = await generateDiaryEntry(aiMessages, new Date());
+      
+      const newDiary = {
+        id: diaries.length + 1,
+        date: new Date().toISOString().split('T')[0],
+        title: diary.title,
+        content: diary.content,
+        mood: diary.mood,
+        moodText: diary.moodText,
+        aiGenerated: true,
+      };
+      
+      setDiaries([newDiary, ...diaries]);
+      
+      toast({
+        title: "日记已生成",
+        description: "AI 已根据你的对话生成了一篇新日记",
+      });
+    } catch (error) {
+      console.error("Failed to generate diary:", error);
+      toast({
+        title: "生成失败",
+        description: error instanceof Error ? error.message : "无法生成日记",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingDiary(false);
+    }
+  };
 
   const handleEditDiary = (diary: typeof diaryEntries[0]) => {
     setSelectedDiary(diary);
@@ -232,16 +326,32 @@ const Archive = () => {
             {/* 日记 Tab */}
             <TabsContent value="diary" className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
                   AI 自动为你生成的成长日记
                 </p>
-                <Button size="sm" variant="outline" className="rounded-lg gap-1">
-                  <Plus className="w-4 h-4" />
-                  添加
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="rounded-lg gap-1"
+                  onClick={handleGenerateDiary}
+                  disabled={isGeneratingDiary}
+                >
+                  {isGeneratingDiary ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      生成中
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      AI 生成
+                    </>
+                  )}
                 </Button>
               </div>
 
-              {diaryEntries.map((entry) => (
+              {diaries.map((entry) => (
                 <Dialog key={entry.id}>
                   <DialogTrigger asChild>
                     <Card className="p-4 hover:shadow-elevated transition-all duration-300 cursor-pointer">
@@ -363,10 +473,31 @@ const Archive = () => {
 
               {/* 情绪洞察 */}
               <Card className="p-4 gradient-soft border-primary/20">
-                <h4 className="font-semibold mb-2 text-sm">💡 本周情绪洞察</h4>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  本周你的整体情绪呈上升趋势，周三出现了一些波动，但很快恢复。保持目前的状态，继续加油！
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    {timeFilter === "week" ? "本周" : timeFilter === "month" ? "本月" : "最近"}情绪洞察
+                  </h4>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={loadEmotionInsights}
+                    disabled={isGeneratingInsight}
+                    className="h-6 w-6 p-0"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isGeneratingInsight ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
+                {isGeneratingInsight ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    AI 正在分析你的情绪模式...
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {emotionInsight || "本周你的整体情绪呈上升趋势，周三出现了一些波动，但很快恢复。保持目前的状态，继续加油！"}
+                  </p>
+                )}
               </Card>
 
               {/* 情绪日历 */}
@@ -415,13 +546,56 @@ const Archive = () => {
 
               {/* 沟通习惯分析 */}
               <Card className="p-4 gradient-soft border-primary/20">
-                <h4 className="font-semibold mb-2 text-sm">📊 沟通习惯分析</h4>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-2">
-                  你更倾向于在晚上 8-10 点与朋友交流，周末的互动频率明显增加。
-                </p>
-                <p className="text-sm text-primary font-medium">
-                  💡 建议：可以尝试在午休时间增加一些轻松的互动
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    沟通习惯分析
+                  </h4>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={async () => {
+                      setIsGeneratingAnalysis(true);
+                      try {
+                        // For demo, use some mock group messages
+                        // In production, this would come from actual group chat data
+                        const mockGroupMessages = [
+                          { sender: "你", content: "大家好！今天天气不错" },
+                          { sender: "小明", content: "是啊，要不要一起出去玩" },
+                          { sender: "你", content: "好啊，去哪里呢？" },
+                        ];
+                        
+                        const analysis = await analyzeSocialRelationships(mockGroupMessages);
+                        setSocialAnalysis(analysis);
+                      } catch (error) {
+                        console.error("Failed to analyze social relationships:", error);
+                      } finally {
+                        setIsGeneratingAnalysis(false);
+                      }
+                    }}
+                    disabled={isGeneratingAnalysis}
+                    className="h-6 w-6 p-0"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isGeneratingAnalysis ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
+                {isGeneratingAnalysis ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    AI 正在分析你的社交模式...
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-2">
+                      {socialAnalysis || "你更倾向于在晚上 8-10 点与朋友交流，周末的互动频率明显增加。"}
+                    </p>
+                    {!socialAnalysis && (
+                      <p className="text-sm text-primary font-medium">
+                        💡 建议：可以尝试在午休时间增加一些轻松的互动
+                      </p>
+                    )}
+                  </>
+                )}
               </Card>
             </TabsContent>
 
