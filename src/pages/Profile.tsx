@@ -285,13 +285,13 @@ const Profile = () => {
       <header className="sticky top-0 z-10 glass-effect px-4 py-4 shadow-soft">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-bold">我的</h1>
-          <Button
+          {/* <Button
             variant="ghost"
             size="icon"
             className="rounded-xl hover:bg-muted/50"
           >
             <Settings className="w-5 h-5" />
-          </Button>
+          </Button> */}
         </div>
       </header>
 
