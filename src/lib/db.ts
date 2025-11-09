@@ -423,6 +423,12 @@ class DatabaseService {
   }
 
   // UserSettings operations
+  // SECURITY NOTE: API keys are stored in plain text in localStorage/database
+  // This is necessary for the application to make API calls on behalf of users
+  // For production deployments, consider implementing:
+  // 1. Backend proxy pattern to avoid storing keys in frontend
+  // 2. Encryption at rest with secure key management
+  // 3. See SECURITY_API_KEYS.md for detailed recommendations
   async getUserSettings(userId: string): Promise<UserSettings | null> {
     const settings = this.getFromStorage<UserSettings>("userSettings");
     return settings.find(s => s.userId === userId) || null;
@@ -438,7 +444,7 @@ class DatabaseService {
     const newSettings: UserSettings = {
       id: this.generateId(),
       userId: data.userId,
-      apiKey: data.apiKey,
+      apiKey: data.apiKey, // Stored in plain text - see security note above
       apiEndpoint: data.apiEndpoint,
       model: data.model,
       createdAt: new Date(),
