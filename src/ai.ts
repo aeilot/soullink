@@ -630,3 +630,422 @@ export function createPersonality(
     systemPrompt,
   };
 }
+
+/**
+ * Generate diary entry from conversation history
+ */
+export async function generateDiaryEntry(
+  conversationHistory: Message[],
+  date: Date,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<{ title: string; content: string; mood: string; moodText: string }> {
+  // Default fallback diary
+  const defaultDiary = {
+    title: "平静的一天",
+    content: "今天和 AI 助手进行了愉快的交流。",
+    mood: "😊",
+    moodText: "平静",
+  };
+
+  if (conversationHistory.length === 0) {
+    return defaultDiary;
+  }
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    // Fallback: generate simple diary from messages
+    const userMessages = conversationHistory.filter(m => m.role === "user");
+    if (userMessages.length > 0) {
+      const firstMsg = userMessages[0].content;
+      return {
+        title: firstMsg.substring(0, 20) + (firstMsg.length > 20 ? "..." : ""),
+        content: firstMsg.substring(0, 100) + (firstMsg.length > 100 ? "..." : ""),
+        mood: "😊",
+        moodText: "平静",
+      };
+    }
+    return defaultDiary;
+  }
+
+  try {
+    // Build conversation text
+    let conversationText = "";
+    for (const msg of conversationHistory.slice(-15)) { // Last 15 messages
+      const role = msg.role === "user" ? "我" : "助手";
+      conversationText += `${role}: ${msg.content}\n`;
+    }
+
+    const prompt = `基于以下对话，为用户生成一篇简短的日记条目。
+
+日期: ${date.toLocaleDateString("zh-CN")}
+
+对话内容:
+${conversationText}
+
+请生成：
+1. 一个简短的标题（5-10个字）
+2. 一段日记内容（50-120个字），以第一人称描述今天的对话和感受
+3. 一个表情符号代表整体情绪
+4. 一个简短的情绪词（如：快乐、平静、焦虑等）
+
+以 JSON 格式回复：
+{"title": "标题", "content": "日记内容", "mood": "😊", "moodText": "情绪词"}`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个日记撰写助手，帮助用户记录日常对话和感受。总是用 JSON 格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+    });
+
+    const resultText = response.choices[0].message.content || "{}";
+    const result = JSON.parse(resultText);
+
+    return {
+      title: result.title || defaultDiary.title,
+      content: result.content || defaultDiary.content,
+      mood: result.mood || defaultDiary.mood,
+      moodText: result.moodText || defaultDiary.moodText,
+    };
+  } catch (error) {
+    console.error("Failed to generate diary:", error);
+    return defaultDiary;
+  }
+}
+
+/**
+ * Generate emotion insights from conversation history
+ */
+export async function generateEmotionInsights(
+  conversationHistory: Message[],
+  timeframe: string = "week",
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<string> {
+  const defaultInsight = "最近的对话显示了积极的情绪趋势。继续保持！";
+
+  if (conversationHistory.length === 0) {
+    return defaultInsight;
+  }
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultInsight;
+  }
+
+  try {
+    // Build conversation text with emotion detection
+    let conversationText = "";
+    const emotions: string[] = [];
+    
+    for (const msg of conversationHistory.slice(-20)) {
+      if (msg.role === "user") {
+        const emotion = detectEmotion(msg.content);
+        emotions.push(emotion);
+        conversationText += `用户: ${msg.content} [情绪: ${emotion}]\n`;
+      }
+    }
+
+    const prompt = `分析用户${timeframe === "week" ? "本周" : "最近"}的对话情绪，生成洞察。
+
+对话记录和情绪:
+${conversationText}
+
+请提供一段简短的情绪洞察（50-100个字），包括：
+1. 整体情绪趋势
+2. 情绪变化模式
+3. 积极的建议或鼓励
+
+只返回洞察文本，不要包含其他内容。`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个情绪分析专家，帮助用户理解他们的情绪模式。" },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 150,
+      temperature: 0.7,
+    });
+
+    return response.choices[0].message.content || defaultInsight;
+  } catch (error) {
+    console.error("Failed to generate emotion insights:", error);
+    return defaultInsight;
+  }
+}
+
+/**
+ * Analyze social relationships from group chat data
+ */
+export async function analyzeSocialRelationships(
+  groupMessages: Array<{ sender: string; content: string }>,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<string> {
+  const defaultAnalysis = "你在群聊中积极参与交流，与朋友们保持良好的互动。";
+
+  if (groupMessages.length === 0) {
+    return defaultAnalysis;
+  }
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultAnalysis;
+  }
+
+  try {
+    // Build message text
+    let messageText = "";
+    for (const msg of groupMessages.slice(-30)) {
+      messageText += `${msg.sender}: ${msg.content}\n`;
+    }
+
+    const prompt = `分析用户在群聊中的社交互动模式。
+
+群聊消息:
+${messageText}
+
+请提供一段简短的社交习惯分析（50-100个字），包括：
+1. 沟通风格特点
+2. 互动频率和时间偏好
+3. 一个建议性的提示
+
+只返回分析文本，不要包含其他内容。`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个社交行为分析专家，帮助用户了解他们的交流模式。" },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 150,
+      temperature: 0.7,
+    });
+
+    return response.choices[0].message.content || defaultAnalysis;
+  } catch (error) {
+    console.error("Failed to analyze social relationships:", error);
+    return defaultAnalysis;
+  }
+}
+
+/**
+ * Generate group chat AI response with role-based personality
+ */
+export async function generateGroupChatResponse(
+  userMessage: string,
+  groupHistory: Array<{ sender: string; content: string }>,
+  aiRole: "moderator" | "guide" | "entertainer",
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<string> {
+  // Role-specific personalities
+  const rolePersonalities = {
+    moderator: `你是一个群聊调解员，名叫Soul。你的角色是：
+- 帮助化解矛盾，维护群聊和谐
+- 引导大家进行理性、建设性的讨论
+- 在气氛紧张时提醒大家保持冷静
+- 确保每个人的观点都被听到和尊重
+用中文回复，语气专业但友好，保持中立立场。`,
+    
+    guide: `你是一个话题引导者，名叫Soul。你的角色是：
+- 引导有趣的话题，激发讨论
+- 提出深刻的问题让大家思考
+- 分享相关的知识和观点
+- 保持对话的活跃和有意义
+用中文回复，语气热情且富有洞察力。`,
+    
+    entertainer: `你是一个气氛活跃者，名叫Soul。你的角色是：
+- 活跃气氛，增添趣味
+- 适时加入幽默和轻松的元素
+- 让群聊更加有趣和愉快
+- 用积极的态度影响大家
+用中文回复，语气活泼有趣，适度使用表情符号。`,
+  };
+
+  // Default responses by role
+  const defaultResponses = {
+    moderator: "我理解大家的不同观点。让我们先冷静下来，听听各方的想法如何？",
+    guide: "这个话题很有意思！不如我们深入讨论一下这个问题的几个方面？",
+    entertainer: "哈哈，让我来活跃一下气氛！大家今天心情都不错啊~ 😄",
+  };
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultResponses[aiRole];
+  }
+
+  try {
+    // Build group chat history
+    let historyText = "";
+    for (const msg of groupHistory.slice(-10)) {
+      historyText += `${msg.sender}: ${msg.content}\n`;
+    }
+
+    const messages: Message[] = [
+      { role: "system", content: rolePersonalities[aiRole] },
+      { role: "user", content: `群聊历史:\n${historyText}\n\n最新消息: ${userMessage}\n\n请作为${aiRole === "moderator" ? "调解员" : aiRole === "guide" ? "话题引导者" : "气氛活跃者"}回应。` },
+    ];
+
+    const result = await callLLM(messages, apiConfig, adminConfig);
+    
+    if (typeof result === "string") {
+      return result;
+    }
+    
+    return defaultResponses[aiRole];
+  } catch (error) {
+    console.error("Failed to generate group chat response:", error);
+    return defaultResponses[aiRole];
+  }
+}
+
+/**
+ * Generate group topic suggestions
+ */
+export async function generateGroupTopicSuggestions(
+  groupName: string,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<string[]> {
+  const defaultTopics = [
+    "今天有什么有趣的事情想分享吗？",
+    "最近大家在忙什么呢？",
+    "周末有什么计划吗？",
+  ];
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultTopics;
+  }
+
+  try {
+    const prompt = `为名为"${groupName}"的群聊生成3个有趣的话题建议。
+
+要求：
+1. 话题应该轻松、有趣、易于讨论
+2. 适合中文群聊环境
+3. 每个话题以问句形式呈现
+4. 话题应该能激发互动
+
+以 JSON 数组格式回复：["话题1", "话题2", "话题3"]`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个群聊话题建议专家，善于提出能激发讨论的话题。总是用 JSON 数组格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.8,
+    });
+
+    const resultText = response.choices[0].message.content || "[]";
+    const topics = JSON.parse(resultText);
+    
+    if (Array.isArray(topics) && topics.length > 0) {
+      return topics;
+    }
+    
+    return defaultTopics;
+  } catch (error) {
+    console.error("Failed to generate topic suggestions:", error);
+    return defaultTopics;
+  }
+}
+
+/**
+ * Generate personality prompt suggestions based on user's conversation patterns
+ */
+export async function generatePersonalitySuggestions(
+  conversationHistory: Message[],
+  currentPersonality: PersonalityConfig,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<{ suggestions: string[]; explanation: string }> {
+  const defaultSuggestions = {
+    suggestions: [
+      "增加更多同理心和情感支持",
+      "提供更具体和实用的建议",
+      "使用更轻松活泼的语气",
+    ],
+    explanation: "基于您的对话模式，这些调整可能会改善交流体验。",
+  };
+
+  if (conversationHistory.length < 5) {
+    return defaultSuggestions;
+  }
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultSuggestions;
+  }
+
+  try {
+    // Build conversation text
+    let conversationText = "";
+    for (const msg of conversationHistory.slice(-20)) {
+      const role = msg.role === "user" ? "用户" : "AI";
+      conversationText += `${role}: ${msg.content}\n`;
+    }
+
+    const prompt = `分析用户的对话历史，为 AI 个性提供改进建议。
+
+当前个性提示词:
+"${currentPersonality.systemPrompt}"
+
+对话历史:
+${conversationText}
+
+请分析：
+1. 用户的交流偏好和风格
+2. 当前个性的优点和可以改进的地方
+3. 3个具体的个性调整建议
+
+以 JSON 格式回复：
+{
+  "suggestions": ["建议1", "建议2", "建议3"],
+  "explanation": "简短说明为什么这些建议有帮助"
+}`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个 AI 个性优化专家，帮助改进 AI 助手的行为和回应方式。总是用 JSON 格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+    });
+
+    const resultText = response.choices[0].message.content || "{}";
+    const result = JSON.parse(resultText);
+    
+    return {
+      suggestions: result.suggestions || defaultSuggestions.suggestions,
+      explanation: result.explanation || defaultSuggestions.explanation,
+    };
+  } catch (error) {
+    console.error("Failed to generate personality suggestions:", error);
+    return defaultSuggestions;
+  }
+}
