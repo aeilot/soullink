@@ -94,7 +94,7 @@ const Profile = () => {
   useEffect(() => {
     const loadConfigs = async () => {
       const savedAdminConfig = localStorage.getItem("adminConfig");
-      
+
       if (savedAdminConfig) {
         setAdminConfig(JSON.parse(savedAdminConfig));
       }
@@ -140,7 +140,7 @@ const Profile = () => {
         }
       }
     };
-    
+
     loadConfigs();
   }, [user]);
 
@@ -150,12 +150,12 @@ const Profile = () => {
       if (user) {
         const conversations = await db.getUserConversations(user.id);
         setConversationCount(conversations.length);
-        
+
         const groups = await db.getUserGroups(user.id);
         setGroupCount(groups.length);
       }
     };
-    
+
     loadUserStats();
   }, [user]);
 
@@ -244,7 +244,7 @@ const Profile = () => {
     try {
       const conversation = await db.getCurrentConversation();
       const messages = await db.getConversationMessages(conversation.id);
-      
+
       if (messages.length < 5) {
         toast({
           title: "对话太少",
@@ -253,20 +253,20 @@ const Profile = () => {
         });
         return;
       }
-      
+
       // Convert messages to AI format
       const aiMessages: AIMessage[] = messages.map(m => ({
         role: m.sender === "user" ? "user" : "assistant",
         content: m.content,
       }));
-      
+
       const suggestions = await generatePersonalitySuggestions(
         aiMessages,
         personalityConfig
       );
-      
+
       setPersonalitySuggestions(suggestions);
-      
+
       toast({
         title: "建议已生成",
         description: "AI 已根据你的对话历史生成个性优化建议",
@@ -308,7 +308,7 @@ const Profile = () => {
                 <div className="w-full h-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-2xl font-bold text-white shadow-inner">
                   {isSignedIn && user ? user.name.charAt(0).toUpperCase() : "?"}
                 </div>
-                <AvatarFallback>User</AvatarFallback>
+                {/*<AvatarFallback>User</AvatarFallback>*/}
               </Avatar>
               <div className="flex-1">
                 <h2 className="text-xl font-bold mb-1">
@@ -486,9 +486,9 @@ const Profile = () => {
                   <Input
                     id="personalityTraits"
                     value={personalityConfig.traits.join(", ")}
-                    onChange={(e) => setPersonalityConfig(prev => ({ 
-                      ...prev, 
-                      traits: e.target.value.split(",").map(t => t.trim()).filter(t => t) 
+                    onChange={(e) => setPersonalityConfig(prev => ({
+                      ...prev,
+                      traits: e.target.value.split(",").map(t => t.trim()).filter(t => t)
                     }))}
                     placeholder="关怀, 倾听, 陪伴, 理解, 温暖"
                   />
@@ -632,7 +632,7 @@ const Profile = () => {
                     onCheckedChange={handleToggleForceApi}
                   />
                 </div>
-                
+
                 {adminConfig.forceApi && (
                   <>
                     <div className="space-y-2">
@@ -694,7 +694,7 @@ const Profile = () => {
                       onCheckedChange={handleToggleLocalProgram}
                     />
                   </div>
-                  
+
                   {adminConfig.useLocalProgram && (
                     <div className="space-y-2">
                       <Label htmlFor="localProgramUrl">本地程序URL</Label>
@@ -968,8 +968,8 @@ const Profile = () => {
                         导出 AI 个性设置
                       </p>
                     </div>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => {
                         // Export personality settings
@@ -978,9 +978,9 @@ const Profile = () => {
                           exportDate: new Date().toISOString(),
                           version: "1.0.0"
                         };
-                        
+
                         const blob = new Blob(
-                          [JSON.stringify(dataToExport, null, 2)], 
+                          [JSON.stringify(dataToExport, null, 2)],
                           { type: "application/json" }
                         );
                         const url = URL.createObjectURL(blob);
@@ -991,7 +991,7 @@ const Profile = () => {
                         link.click();
                         document.body.removeChild(link);
                         URL.revokeObjectURL(url);
-                        
+
                         toast({
                           title: "导出成功",
                           description: "AI 个性设置已导出",
@@ -1078,9 +1078,9 @@ const Profile = () => {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">GitHub</span>
-                        <a 
-                          href="https://github.com/aeilot/soullink" 
-                          target="_blank" 
+                        <a
+                          href="https://github.com/aeilot/soullink"
+                          target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary hover:underline"
                         >
@@ -1097,16 +1097,16 @@ const Profile = () => {
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm">反馈渠道</h4>
                     <div className="space-y-2">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         className="w-full justify-start"
                         onClick={() => window.open("https://github.com/aeilot/soullink/issues", "_blank")}
                       >
                         <HelpCircle className="w-4 h-4 mr-2" />
                         在 GitHub 上提交 Issue
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         className="w-full justify-start"
                         onClick={() => window.open("https://github.com/aeilot/soullink/discussions", "_blank")}
                       >
@@ -1122,8 +1122,8 @@ const Profile = () => {
 
           {/* Logout Button */}
           {isSignedIn && (
-            <Card 
-              className="p-4 hover:shadow-elevated transition-all duration-300 cursor-pointer border-destructive/20 animate-slide-up" 
+            <Card
+              className="p-4 hover:shadow-elevated transition-all duration-300 cursor-pointer border-destructive/20 animate-slide-up"
               style={{ animationDelay: "300ms" }}
               onClick={async () => {
                 await signOut();
