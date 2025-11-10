@@ -377,6 +377,7 @@ const Group = () => {
                 </p>
                 <Button
                   size="sm"
+                  onClick={() => navigate("/group-assistant-info")}
                   className="rounded-lg gradient-primary shadow-soft hover:shadow-elevated transition-all duration-300"
                 >
                   了解更多

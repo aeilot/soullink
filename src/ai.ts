@@ -1138,3 +1138,286 @@ ${conversationText}
     return defaultSuggestions;
   }
 }
+
+/**
+ * Analyze group chat sentiment and atmosphere
+ */
+export async function analyzeGroupSentiment(
+  groupHistory: Array<{ sender: string; content: string; senderType?: string }>,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<{
+  sentiment: "positive" | "neutral" | "negative" | "tense";
+  confidence: number;
+  summary: string;
+  needsIntervention: boolean;
+}> {
+  const defaultAnalysis = {
+    sentiment: "neutral" as const,
+    confidence: 0.5,
+    summary: "群聊氛围正常",
+    needsIntervention: false,
+  };
+
+  if (groupHistory.length < 3) {
+    return defaultAnalysis;
+  }
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    // Simple keyword-based sentiment analysis as fallback
+    const recentMessages = groupHistory.slice(-10);
+    const text = recentMessages.map(m => m.content).join(" ");
+    
+    const negativeKeywords = ["生气", "愤怒", "讨厌", "争论", "不同意", "错了"];
+    const positiveKeywords = ["开心", "好的", "赞同", "有趣", "哈哈"];
+    
+    const hasNegative = negativeKeywords.some(k => text.includes(k));
+    const hasPositive = positiveKeywords.some(k => text.includes(k));
+    
+    if (hasNegative && !hasPositive) {
+      return {
+        sentiment: "tense",
+        confidence: 0.6,
+        summary: "检测到一些紧张气氛",
+        needsIntervention: true,
+      };
+    }
+    
+    return defaultAnalysis;
+  }
+
+  try {
+    // Build conversation text
+    let historyText = "";
+    for (const msg of groupHistory.slice(-15)) {
+      const senderLabel = msg.senderType === "ai" ? `[AI] ${msg.sender}` : msg.sender;
+      historyText += `${senderLabel}: ${msg.content}\n`;
+    }
+
+    const prompt = `分析以下群聊对话的情绪氛围和是否需要 AI 介入。
+
+群聊历史:
+${historyText}
+
+请分析：
+1. 整体情绪氛围（positive/neutral/negative/tense）
+2. 是否存在冲突或紧张局面
+3. 是否需要 AI 调解员介入
+4. 给出简短的氛围总结
+
+以 JSON 格式回复：
+{
+  "sentiment": "positive|neutral|negative|tense",
+  "confidence": 0.0-1.0,
+  "summary": "简短的氛围描述",
+  "needsIntervention": true|false
+}`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个群聊氛围分析专家，能够准确判断对话的情绪状态。总是用 JSON 格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+    });
+
+    const resultText = response.choices[0].message.content || "{}";
+    const result = JSON.parse(resultText);
+    
+    return {
+      sentiment: result.sentiment || "neutral",
+      confidence: result.confidence || 0.5,
+      summary: result.summary || "群聊氛围正常",
+      needsIntervention: result.needsIntervention || false,
+    };
+  } catch (error) {
+    console.error("Failed to analyze group sentiment:", error);
+    return defaultAnalysis;
+  }
+}
+
+/**
+ * Decide if AI should proactively intervene in group chat
+ */
+export async function shouldAIIntervene(
+  groupHistory: Array<{ sender: string; content: string; senderType?: string }>,
+  sentiment: { sentiment: string; needsIntervention: boolean },
+  lastAIMessageTime?: Date,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<{
+  shouldIntervene: boolean;
+  reason: string;
+  suggestedAction: "moderate" | "suggest_topic" | "lighten_mood" | "none";
+  message?: string;
+}> {
+  const defaultDecision = {
+    shouldIntervene: false,
+    reason: "无需介入",
+    suggestedAction: "none" as const,
+  };
+
+  // Don't intervene if AI just spoke recently
+  if (lastAIMessageTime) {
+    const minutesSinceLastAI = (Date.now() - lastAIMessageTime.getTime()) / (1000 * 60);
+    if (minutesSinceLastAI < 2) {
+      return defaultDecision;
+    }
+  }
+
+  // If sentiment analysis suggests intervention
+  if (sentiment.needsIntervention) {
+    return {
+      shouldIntervene: true,
+      reason: "检测到紧张气氛或冲突",
+      suggestedAction: "moderate",
+      message: "我注意到大家的讨论有些激烈，让我们都冷静一下，听听各方的观点。大家都有自己的想法，这很好，但我们要保持尊重和理性。",
+    };
+  }
+
+  // Check if conversation is getting slow
+  if (groupHistory.length >= 5) {
+    const recentMessages = groupHistory.slice(-5);
+    const allFromSameUser = recentMessages.every(m => m.sender === recentMessages[0].sender);
+    
+    if (allFromSameUser && recentMessages[0].senderType !== "ai") {
+      return {
+        shouldIntervene: true,
+        reason: "只有一个人在说话，可能需要引导话题",
+        suggestedAction: "suggest_topic",
+        message: "看起来话题挺有意思的！大家有什么想法吗？不如我们一起讨论讨论？",
+      };
+    }
+  }
+
+  // Load API config for advanced analysis
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultDecision;
+  }
+
+  try {
+    // Build conversation text
+    let historyText = "";
+    for (const msg of groupHistory.slice(-10)) {
+      const senderLabel = msg.senderType === "ai" ? `[AI] ${msg.sender}` : msg.sender;
+      historyText += `${senderLabel}: ${msg.content}\n`;
+    }
+
+    const prompt = `分析群聊是否需要 AI 主动介入。
+
+群聊历史:
+${historyText}
+
+当前氛围: ${sentiment.sentiment}
+
+判断是否需要 AI 介入，以及采取什么行动：
+- moderate: 调解冲突或紧张气氛
+- suggest_topic: 建议新话题或引导讨论
+- lighten_mood: 活跃气氛
+- none: 无需介入
+
+以 JSON 格式回复：
+{
+  "shouldIntervene": true|false,
+  "reason": "简短说明原因",
+  "suggestedAction": "moderate|suggest_topic|lighten_mood|none",
+  "message": "如果需要介入，AI 应该说什么"
+}`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个群聊干预决策专家，判断何时需要 AI 介入以及如何介入。总是用 JSON 格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.4,
+    });
+
+    const resultText = response.choices[0].message.content || "{}";
+    const result = JSON.parse(resultText);
+    
+    return {
+      shouldIntervene: result.shouldIntervene || false,
+      reason: result.reason || "AI 分析建议",
+      suggestedAction: result.suggestedAction || "none",
+      message: result.message,
+    };
+  } catch (error) {
+    console.error("Failed to determine if AI should intervene:", error);
+    return defaultDecision;
+  }
+}
+
+/**
+ * Generate contextual topic suggestions based on recent conversation
+ */
+export async function generateContextualTopics(
+  groupHistory: Array<{ sender: string; content: string }>,
+  groupName: string,
+  apiConfig?: ApiConfig,
+  adminConfig?: AdminConfig
+): Promise<string[]> {
+  const defaultTopics = [
+    "大家最近在忙什么有趣的事情吗？",
+    "有什么新的想法或计划想分享吗？",
+    "我们来聊聊最近的热门话题吧！",
+  ];
+
+  // Load API config
+  const config = apiConfig || JSON.parse(localStorage.getItem("userApiConfig") || "null");
+  
+  if (!config) {
+    return defaultTopics;
+  }
+
+  try {
+    // Build conversation context
+    let contextText = "";
+    for (const msg of groupHistory.slice(-10)) {
+      contextText += `${msg.sender}: ${msg.content}\n`;
+    }
+
+    const prompt = `基于群聊"${groupName}"的最近对话，生成3个相关的话题建议。
+
+最近的对话:
+${contextText}
+
+要求：
+1. 话题应该与最近的讨论相关或自然延伸
+2. 保持轻松、有趣、易于讨论
+3. 以问句形式呈现
+4. 能够激发互动
+
+以 JSON 数组格式回复：["话题1", "话题2", "话题3"]`;
+
+    const client = createOpenAIClient(config);
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: "system", content: "你是一个群聊话题建议专家，善于根据上下文提出相关且有趣的话题。总是用 JSON 数组格式回复。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.8,
+    });
+
+    const resultText = response.choices[0].message.content || "[]";
+    const topics = JSON.parse(resultText);
+    
+    if (Array.isArray(topics) && topics.length > 0) {
+      return topics;
+    }
+    
+    return defaultTopics;
+  } catch (error) {
+    console.error("Failed to generate contextual topics:", error);
+    return defaultTopics;
+  }
+}
