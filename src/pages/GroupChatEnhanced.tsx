@@ -132,7 +132,12 @@ const GroupChatEnhanced = () => {
       senderType: m.senderType,
     }));
     
-    setMessages(prev => [...prev, ...formattedMessages]);
+    // Filter out messages that already exist to prevent duplicates
+    setMessages(prev => {
+      const existingIds = new Set(prev.map(m => m.id));
+      const newUniqueMessages = formattedMessages.filter(m => !existingIds.has(m.id));
+      return [...prev, ...newUniqueMessages];
+    });
   }, [user, aiMembers]);
 
   // Set up real-time sync
