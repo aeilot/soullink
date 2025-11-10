@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useGroupSync } from "@/hooks/use-group-sync";
 
 interface GroupMessage {
   id: string;
@@ -109,6 +110,31 @@ const GroupChatEnhanced = () => {
   const [newAIPersonality, setNewAIPersonality] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  // Handle new messages from sync
+  const handleNewMessages = useCallback((newMessages: DBGroupMessage[]) => {
+    const formattedMessages: GroupMessage[] = newMessages.map(m => ({
+      id: m.id,
+      content: m.content,
+      sender: m.senderType === "ai" ? "ai" : (m.userId === user?.id ? "user" : "other"),
+      senderName: m.senderType === "ai" && m.aiMemberId 
+        ? aiMembers.find(ai => ai.id === m.aiMemberId)?.name || "AI"
+        : (m.userId === user?.id ? "你" : "其他用户"),
+      timestamp: new Date(m.createdAt),
+      aiMemberId: m.aiMemberId,
+      senderType: m.senderType,
+    }));
+    
+    setMessages(prev => [...prev, ...formattedMessages]);
+  }, [user, aiMembers]);
+
+  // Set up real-time sync
+  useGroupSync({
+    groupId: id || "",
+    enabled: isSignedIn && !!id,
+    onNewMessages: handleNewMessages,
+    pollInterval: 5000, // Poll every 5 seconds
+  });
 
   // Load group, AI members, and messages
   useEffect(() => {
