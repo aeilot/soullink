@@ -1,4 +1,4 @@
-# SoulLink - AI 情感陪伴助手
+# SoulLink 灵犀 - AI 情感陪伴助手
 
 <div align="center">
 
@@ -528,7 +528,7 @@ npm run preview
 
 <div align="center">
 
-**[⬆ 回到顶部](#soullink---ai-情感陪伴助手)**
+**[⬆ 回到顶部](#soullink 灵犀---ai-情感陪伴助手)**
 
 Made with ❤️ by the SoulLink Team
 
